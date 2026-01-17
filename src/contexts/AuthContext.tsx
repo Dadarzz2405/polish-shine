@@ -1,68 +1,71 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { User, Role } from '@/types';
-import { authApi } from '@/services/api';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import api from '@/services/api';
+
+/**
+ * User type from Flask backend
+ */
+export interface User {
+  id: number;
+  email: string;
+  username: string;
+  role: 'admin' | 'ketua' | 'pembina' | 'member';
+  division_id?: number;
+  must_change_password?: boolean;
+  profile_picture?: string;
+}
 
 interface AuthContextType {
   user: User | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
+  loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  refreshUser: () => Promise<void>;
-  hasRole: (...roles: Role[]) => boolean;
+  refresh: () => Promise<void>;
+  hasRole: (...roles: string[]) => boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | null>(null);
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  const refreshUser = useCallback(async () => {
+  // Check if user is logged in on mount
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  async function checkAuth() {
     try {
-      const userData = await authApi.getCurrentUser() as User;
+      const userData = await api.get<User>('/api/me');
       setUser(userData);
     } catch {
       setUser(null);
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }
 
-  useEffect(() => {
-    const initAuth = async () => {
-      setIsLoading(true);
-      await refreshUser();
-      setIsLoading(false);
-    };
-    initAuth();
-  }, [refreshUser]);
+  async function login(email: string, password: string) {
+    await api.post('/login', { email, password });
+    await checkAuth();
+  }
 
-  const login = async (email: string, password: string) => {
-    await authApi.login(email, password);
-    await refreshUser();
-  };
-
-  const logout = async () => {
-    await authApi.logout();
+  async function logout() {
+    await api.post('/logout');
     setUser(null);
-  };
+  }
 
-  const hasRole = (...roles: Role[]) => {
+  async function refresh() {
+    await checkAuth();
+  }
+
+  function hasRole(...roles: string[]) {
     if (!user) return false;
     return roles.includes(user.role);
-  };
+  }
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        isAuthenticated: !!user,
-        login,
-        logout,
-        refreshUser,
-        hasRole,
-      }}
-    >
+    <AuthContext.Provider value={{ user, loading, login, logout, refresh, hasRole }}>
       {children}
     </AuthContext.Provider>
   );
@@ -70,8 +73,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
   }
   return context;
 }
