@@ -1,18 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { attendanceApi, sessionApi } from '@/services/api';
+import api from '@/services/api';
 import { Session, AttendanceRecord, AttendanceSummary } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { Calendar, Check, X, Clock, Plus, Loader2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Plus, Check, X, Clock, Loader2 } from 'lucide-react';
 
 export default function Attendance() {
   const { hasRole } = useAuth();
@@ -22,62 +20,62 @@ export default function Attendance() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [myAttendance, setMyAttendance] = useState<AttendanceRecord[]>([]);
   const [summary, setSummary] = useState<AttendanceSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   // New session form
-  const [newSessionName, setNewSessionName] = useState('');
-  const [newSessionDate, setNewSessionDate] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDate, setNewDate] = useState('');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [sessionsData, attendanceData, summaryData] = await Promise.all([
-          sessionApi.getAll(),
-          attendanceApi.getMyAttendance(),
-          attendanceApi.getMySummary(),
-        ]);
-        setSessions(sessionsData as Session[]);
-        setMyAttendance(attendanceData as AttendanceRecord[]);
-        setSummary(summaryData as AttendanceSummary);
-      } catch (error) {
-        console.error('Failed to fetch attendance data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchData();
+    loadData();
   }, []);
 
-  const handleCreateSession = async (e: React.FormEvent) => {
+  async function loadData() {
+    try {
+      const [sessionsData, attendanceData, summaryData] = await Promise.all([
+        api.get<Session[]>('/api/sessions'),
+        api.get<AttendanceRecord[]>('/api/my-attendance'),
+        api.get<AttendanceSummary>('/api/my-attendance/summary'),
+      ]);
+      setSessions(sessionsData);
+      setMyAttendance(attendanceData);
+      setSummary(summaryData);
+    } catch (error) {
+      console.error('Failed to load attendance data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateSession(e: React.FormEvent) {
     e.preventDefault();
-    setIsCreating(true);
+    setCreating(true);
 
     try {
-      await sessionApi.create(newSessionName, newSessionDate);
-      const sessionsData = await sessionApi.getAll();
-      setSessions(sessionsData as Session[]);
-      setNewSessionName('');
-      setNewSessionDate('');
+      await api.post('/api/sessions', { name: newName, date: newDate });
+      const newSessions = await api.get<Session[]>('/api/sessions');
+      setSessions(newSessions);
+      setNewName('');
+      setNewDate('');
       setDialogOpen(false);
-      toast({ title: 'Session created successfully' });
-    } catch (error) {
+      toast({ title: 'Session created' });
+    } catch (err) {
       toast({
         title: 'Failed to create session',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        description: err instanceof Error ? err.message : 'Unknown error',
         variant: 'destructive',
       });
     } finally {
-      setIsCreating(false);
+      setCreating(false);
     }
-  };
+  }
 
-  const getStatusBadge = (status: string) => {
+  function getStatusBadge(status: string) {
     switch (status) {
       case 'present':
-        return <Badge className="bg-success text-success-foreground"><Check className="h-3 w-3 mr-1" />Present</Badge>;
+        return <Badge className="bg-green-500"><Check className="h-3 w-3 mr-1" />Present</Badge>;
       case 'absent':
         return <Badge variant="destructive"><X className="h-3 w-3 mr-1" />Absent</Badge>;
       case 'excused':
@@ -85,9 +83,9 @@ export default function Attendance() {
       default:
         return <Badge variant="outline">—</Badge>;
     }
-  };
+  }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -96,52 +94,40 @@ export default function Attendance() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Attendance</h1>
-          <p className="text-muted-foreground mt-2">
-            {canMark ? 'Manage sessions and mark attendance' : 'View your attendance history'}
-          </p>
-        </div>
+        <h1 className="text-3xl font-bold">Attendance</h1>
 
         {canMark && (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                New Session
-              </Button>
+              <Button><Plus className="h-4 w-4 mr-2" />New Session</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Create New Session</DialogTitle>
-                <DialogDescription>Add a new attendance session</DialogDescription>
+                <DialogTitle>Create Session</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleCreateSession} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="session-name">Session Name</Label>
+                  <label className="text-sm font-medium">Name</label>
                   <Input
-                    id="session-name"
                     placeholder="e.g., Weekly Meeting"
-                    value={newSessionName}
-                    onChange={(e) => setNewSessionName(e.target.value)}
+                    value={newName}
+                    onChange={e => setNewName(e.target.value)}
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="session-date">Date</Label>
+                  <label className="text-sm font-medium">Date</label>
                   <Input
-                    id="session-date"
                     type="date"
-                    value={newSessionDate}
-                    onChange={(e) => setNewSessionDate(e.target.value)}
+                    value={newDate}
+                    onChange={e => setNewDate(e.target.value)}
                     required
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={isCreating}>
-                  {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Session
+                <Button type="submit" className="w-full" disabled={creating}>
+                  {creating ? 'Creating...' : 'Create'}
                 </Button>
               </form>
             </DialogContent>
@@ -154,7 +140,7 @@ export default function Attendance() {
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Total Sessions</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Total Sessions</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{summary.total_sessions}</div>
@@ -162,23 +148,23 @@ export default function Attendance() {
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Present</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Present</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-success">{summary.present}</div>
+              <div className="text-2xl font-bold text-green-600">{summary.present}</div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Absent</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Absent</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-destructive">{summary.absent}</div>
+              <div className="text-2xl font-bold text-red-600">{summary.absent}</div>
             </CardContent>
           </Card>
           <Card>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">Attendance Rate</CardTitle>
+              <CardTitle className="text-sm text-muted-foreground">Rate</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{summary.attendance_rate.toFixed(1)}%</div>
@@ -187,194 +173,134 @@ export default function Attendance() {
         </div>
       )}
 
-      <Tabs defaultValue={canMark ? 'mark' : 'history'}>
-        <TabsList>
-          {canMark && <TabsTrigger value="mark">Mark Attendance</TabsTrigger>}
-          <TabsTrigger value="history">My History</TabsTrigger>
-          <TabsTrigger value="sessions">Sessions</TabsTrigger>
-        </TabsList>
-
-        {canMark && (
-          <TabsContent value="mark" className="mt-6">
-            <MarkAttendanceTab sessions={sessions} />
-          </TabsContent>
-        )}
-
-        <TabsContent value="history" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Attendance History</CardTitle>
-              <CardDescription>Your attendance records</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Session</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Status</TableHead>
+      {/* Attendance History */}
+      <Card>
+        <CardHeader>
+          <CardTitle>My Attendance History</CardTitle>
+          <CardDescription>Your attendance records</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Session</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {myAttendance.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
+                      No attendance records yet
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  myAttendance.map(record => (
+                    <TableRow key={record.id}>
+                      <TableCell className="font-medium">
+                        {record.session?.name || `Session ${record.session_id}`}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {record.session?.date ? new Date(record.session.date).toLocaleDateString() : '—'}
+                      </TableCell>
+                      <TableCell>{getStatusBadge(record.status)}</TableCell>
                     </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {myAttendance.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
-                          No attendance records yet
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      myAttendance.map((record) => (
-                        <TableRow key={record.id}>
-                          <TableCell className="font-medium">
-                            {record.session?.name || `Session ${record.session_id}`}
-                          </TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {record.session?.date ? new Date(record.session.date).toLocaleDateString() : '—'}
-                          </TableCell>
-                          <TableCell>{getStatusBadge(record.status)}</TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
 
-        <TabsContent value="sessions" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>All Sessions</CardTitle>
-              <CardDescription>View all attendance sessions</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Session Name</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Created</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sessions.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
-                          No sessions created yet
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      sessions.map((session) => (
-                        <TableRow key={session.id}>
-                          <TableCell className="font-medium">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="h-4 w-4 text-muted-foreground" />
-                              {session.name}
-                            </div>
-                          </TableCell>
-                          <TableCell>{new Date(session.date).toLocaleDateString()}</TableCell>
-                          <TableCell className="text-muted-foreground">
-                            {new Date(session.created_at).toLocaleDateString()}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      {/* Mark Attendance Section (for authorized users) */}
+      {canMark && <MarkAttendance sessions={sessions} />}
     </div>
   );
 }
 
-// Separate component for marking attendance
-function MarkAttendanceTab({ sessions }: { sessions: Session[] }) {
+// Sub-component for marking attendance
+function MarkAttendance({ sessions }: { sessions: Session[] }) {
   const { toast } = useToast();
-  const [selectedSession, setSelectedSession] = useState<string>('');
+  const [selectedSession, setSelectedSession] = useState('');
   const [members, setMembers] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<Record<number, string>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const handleSessionChange = async (sessionId: string) => {
+  async function handleSessionChange(sessionId: string) {
     setSelectedSession(sessionId);
     if (!sessionId) return;
 
-    setIsLoading(true);
+    setLoading(true);
     try {
-      const data = await attendanceApi.getBySession(parseInt(sessionId));
-      // Assuming the API returns members with their current attendance status
-      setMembers((data as any).members || []);
-      const attendanceMap: Record<number, string> = {};
-      ((data as any).records || []).forEach((r: any) => {
-        attendanceMap[r.user_id] = r.status;
+      const data = await api.get<any>(`/api/sessions/${sessionId}/attendance`);
+      setMembers(data.members || []);
+      const map: Record<number, string> = {};
+      (data.records || []).forEach((r: any) => {
+        map[r.user_id] = r.status;
       });
-      setAttendance(attendanceMap);
+      setAttendance(map);
     } catch (error) {
-      console.error('Failed to load session data:', error);
+      console.error('Failed to load session:', error);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
-  };
+  }
 
-  const handleStatusChange = (userId: number, status: string) => {
-    setAttendance((prev) => ({ ...prev, [userId]: status }));
-  };
-
-  const handleSave = async () => {
+  async function handleSave() {
     if (!selectedSession) return;
 
-    setIsSaving(true);
+    setSaving(true);
     try {
       const records = Object.entries(attendance).map(([userId, status]) => ({
         user_id: parseInt(userId),
         status,
       }));
-      await attendanceApi.bulkMark(parseInt(selectedSession), records);
-      toast({ title: 'Attendance saved successfully' });
-    } catch (error) {
+      await api.post('/api/attendance/bulk', {
+        session_id: parseInt(selectedSession),
+        records,
+      });
+      toast({ title: 'Attendance saved' });
+    } catch (err) {
       toast({
-        title: 'Failed to save attendance',
-        description: error instanceof Error ? error.message : 'Unknown error',
+        title: 'Failed to save',
+        description: err instanceof Error ? err.message : 'Unknown error',
         variant: 'destructive',
       });
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
-  };
+  }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Mark Attendance</CardTitle>
-        <CardDescription>Select a session and mark attendance for members</CardDescription>
+        <CardDescription>Select a session and mark attendance</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-6">
+      <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label>Select Session</Label>
+          <label className="text-sm font-medium">Session</label>
           <Select value={selectedSession} onValueChange={handleSessionChange}>
             <SelectTrigger className="w-full md:w-64">
-              <SelectValue placeholder="Choose a session" />
+              <SelectValue placeholder="Select session" />
             </SelectTrigger>
             <SelectContent>
-              {sessions.map((session) => (
-                <SelectItem key={session.id} value={session.id.toString()}>
-                  {session.name} - {new Date(session.date).toLocaleDateString()}
+              {sessions.map(s => (
+                <SelectItem key={s.id} value={s.id.toString()}>
+                  {s.name} - {new Date(s.date).toLocaleDateString()}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        {loading ? (
+          <div className="py-8 text-center">
+            <Loader2 className="h-6 w-6 animate-spin mx-auto" />
           </div>
         ) : selectedSession && members.length > 0 ? (
           <>
@@ -387,13 +313,13 @@ function MarkAttendanceTab({ sessions }: { sessions: Session[] }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {members.map((member: any) => (
-                    <TableRow key={member.id}>
-                      <TableCell className="font-medium">{member.username}</TableCell>
+                  {members.map((m: any) => (
+                    <TableRow key={m.id}>
+                      <TableCell className="font-medium">{m.username}</TableCell>
                       <TableCell>
                         <Select
-                          value={attendance[member.id] || ''}
-                          onValueChange={(value) => handleStatusChange(member.id, value)}
+                          value={attendance[m.id] || ''}
+                          onValueChange={v => setAttendance(prev => ({ ...prev, [m.id]: v }))}
                         >
                           <SelectTrigger className="w-32">
                             <SelectValue placeholder="Select" />
@@ -410,13 +336,12 @@ function MarkAttendanceTab({ sessions }: { sessions: Session[] }) {
                 </TableBody>
               </Table>
             </div>
-            <Button onClick={handleSave} disabled={isSaving}>
-              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Save Attendance
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving...' : 'Save Attendance'}
             </Button>
           </>
         ) : selectedSession ? (
-          <p className="text-muted-foreground text-center py-8">No members found for this session</p>
+          <p className="text-muted-foreground text-center py-8">No members found</p>
         ) : null}
       </CardContent>
     </Card>
